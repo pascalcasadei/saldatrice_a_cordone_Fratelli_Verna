@@ -1,0 +1,62 @@
+# Istruzioni per Condividere un Progetto PlatformIO con Git e GitHub
+
+# Questo file contiene i comandi da eseguire nel terminale per
+# caricare il tuo progetto su GitHub e sincronizzarlo tra diversi
+# computer.
+
+# --- Passo 1: Preparazione del Progetto Locale ---
+
+# 1. Apri un terminale (su Linux) o un prompt dei comandi (su Windows)
+#    all'interno della cartella principale del tuo progetto PlatformIO.
+
+# 2. Inizializza un repository Git locale:
+git init
+
+# 3. Crea il file .gitignore per escludere i file di build che non servono:
+#    (Se il file .gitignore esiste già, salta questo passo)
+echo "/.pio/" >> .gitignore
+echo "/.vscode/" >> .gitignore
+echo ".DS_Store" >> .gitignore
+
+# 4. Aggiungi tutti i file del progetto per il primo salvataggio:
+git add .
+
+# 5. Esegui il primo salvataggio (commit):
+git commit -m "Primo commit del progetto PlatformIO"
+
+
+# --- Passo 2: Creazione del Repository su GitHub ---
+
+# 1. Vai su GitHub.com e crea un nuovo repository vuoto.
+#    NON spuntare le opzioni per README, .gitignore o licenze.
+
+# 2. Dopo la creazione, copia i due comandi che ti vengono forniti
+#    per collegare il tuo progetto locale al repository online.
+
+
+# --- Passo 3: Collegamento e Sincronizzazione Iniziale ---
+
+# 1. Collega il repository locale a quello su GitHub. Il comando
+#    sarà simile a questo (sostituisci l'URL con il tuo):
+git remote add origin https://github.com/tuo-utente/tuo-progetto.git
+
+# 2. Carica il progetto su GitHub:
+git push -u origin master
+
+
+# --- Passo 4: Sincronizzazione su un Altro Computer ---
+
+# Se vuoi lavorare sul progetto da un altro computer:
+
+# 1. Apri un terminale nella cartella in cui vuoi salvare il progetto.
+
+# 2. Clona il repository da GitHub (sostituisci l'URL con il tuo):
+git clone https://github.com/tuo-utente/tuo-progetto.git
+
+# 3. Quando fai delle modifiche e vuoi caricarle su GitHub:
+git add .
+git commit -m "Breve descrizione delle modifiche fatte"
+git push
+
+# 4. Quando vuoi scaricare gli ultimi aggiornamenti dal repository:
+git pull

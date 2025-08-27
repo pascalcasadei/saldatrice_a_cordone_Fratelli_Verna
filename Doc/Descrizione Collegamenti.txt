@@ -1,0 +1,24 @@
+Il tuo circuito è un sistema completo e integrato per il controllo automatizzato di due motori passo-passo. È stato progettato per eseguire un ciclo di movimento preciso e ripetitivo, con il pieno controllo da parte dell'utente.
+
+---
+
+### Componenti Principali e Ruolo
+
+* **STM32 Black Pill (Cervello):** È il microcontrollore centrale che esegue il codice. Legge tutti i sensori e gli input e invia i comandi ai driver dei motori.
+* **Driver DM860 (Muscoli):** Due driver potenti che ricevono segnali a bassa tensione dall'STM32 e li convertono negli impulsi ad alta corrente necessari per far muovere i motori passo-passo.
+* **Convertitore di Livello (Traduttore):** Un componente essenziale che traduce i segnali a **3.3V** dell'STM32 in segnali a **5V** compatibili con i driver DM860, garantendo una comunicazione affidabile.
+* **Display OLED (Feedback):** Un piccolo schermo che comunica all'utente lo stato del sistema (pronto, in movimento, in errore, ecc.) e mostra informazioni utili come la velocità e la posizione dei motori.
+* **Pulsante, Finecorsa e Potenziometri (Sensi e Comandi):** Sono gli occhi e le mani del sistema. Il pulsante avvia e ferma il ciclo, i finecorsa segnano i punti di partenza e arrivo dei motori, e i potenziometri permettono di regolare la velocità in tempo reale.
+
+---
+
+### Sequenza di Funzionamento
+
+1.  **Avvio:** All'accensione, il sistema si inizializza e mostra un messaggio per invitare l'utente a eseguire la calibrazione.
+2.  **Homing (Calibrazione):** La prima pressione del pulsante avvia la calibrazione. I motori si muovono lentamente fino a colpire i finecorsa di partenza, impostando la posizione zero per il ciclo.
+3.  **Ciclo Operativo:** Una seconda pressione del pulsante fa partire il ciclo principale. I motori si muovono in avanti, e il relè si attiva. La velocità è regolata dai potenziometri.
+4.  **Movimento Continuo:** Quando i motori colpiscono i finecorsa di fine corsa, il sistema inverte automaticamente la direzione. Il Motore 2 si ferma al suo punto di partenza (`LIMIT_C`), mentre il Motore 1 continua il suo ritorno.
+5.  **Arresto:** Il ciclo si ferma completamente quando il Motore 1 raggiunge il suo finecorsa di partenza (`LIMIT_A`).
+6.  **Controllo Manuale:** Durante il ciclo, puoi premere il pulsante per mettere in pausa o riprendere l'operazione.
+
+In sintesi, il tuo circuito è un sistema meccatronico autonomo che integra hardware, software e feedback visivo per eseguire un processo di movimento automatizzato, con punti di controllo precisi e un'interfaccia utente semplice.

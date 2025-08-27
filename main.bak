@@ -1,0 +1,311 @@
+#include <Arduino.h>
+#include <AccelStepper.h>
+#include <Wire.h>
+//#include <Adafruit_SSD1306.h>
+#include <U8g2lib.h>
+#include <Fonts/FreeSans9pt7b.h> // Sostituisci con il nome del tuo font
+
+// --- Definizione pin reali STM32 Black Pill ---
+#define STEP1_PIN   PA0
+#define DIR1_PIN    PA1
+#define STEP2_PIN   PA2
+#define DIR2_PIN    PA3
+#define RELAY_PIN   PA4
+#define BUTTON_PIN  PA5
+
+#define LIMIT_A_PIN PA6
+#define LIMIT_B_PIN PA7
+#define LIMIT_C_PIN PB0
+#define LIMIT_D_PIN PB1
+
+#define POT1_PIN    PA8  // ADC1_IN8
+#define POT2_PIN    PA9  // ADC1_IN9
+
+// --- Display OLED I2C ---
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// --- Motori stepper ---
+AccelStepper stepper1(AccelStepper::DRIVER, STEP1_PIN, DIR1_PIN);
+AccelStepper stepper2(AccelStepper::DRIVER, STEP2_PIN, DIR2_PIN);
+
+// --- Variabili di stato ---
+enum State { STOPPED, RUNNING_FORWARD, RUNNING_BACK, PAUSED, STATO_ERRORE, HOMING };
+State state = STOPPED;
+bool relayActive = false;
+bool buttonPressed = false;
+bool homingDone = false;
+int velocita1 = 500;
+int velocita2 = 500;
+long target2C = 10000; // Posizione target iniziale per il motore 2 (finecorsa C)
+long target2D = 0;     // Posizione target per il motore 2 (finecorsa D)
+
+// --- Utility ---
+void stopMotors() {
+  stepper1.stop();
+  stepper2.stop();
+}
+
+void deactivateRelay() {
+  digitalWrite(RELAY_PIN, LOW);
+  relayActive = false;
+}
+
+void updateDisplay(const char* msg) {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.print(msg);
+  display.setCursor(0, 16);
+  display.print("V1:");
+  display.print(velocita1);
+  display.print(" V2:");
+  display.print(velocita2);
+  display.display();
+}
+
+void showError(const char* msg) {
+  updateDisplay(msg);
+  stopMotors();
+  deactivateRelay();
+  state = STATO_ERRORE;
+}
+
+void activateRelay() {
+  digitalWrite(RELAY_PIN, HIGH);
+  relayActive = true;
+}
+
+bool checkLimitsOK() {
+  // Ritorna true se i finecorsa sono in stato valido
+  bool motore1OK = !(digitalRead(LIMIT_A_PIN) == LOW && digitalRead(LIMIT_B_PIN) == LOW);
+  bool motore2OK = !(digitalRead(LIMIT_C_PIN) == LOW && digitalRead(LIMIT_D_PIN) == LOW);
+  return motore1OK && motore2OK;
+}
+
+void aggiornaVelocita() {
+  int potValue1 = analogRead(POT1_PIN);
+  int potValue2 = analogRead(POT2_PIN);
+  velocita1 = map(potValue1, 0, 4095, 100, 2000); // Adatta il range secondo le tue esigenze
+  velocita2 = map(potValue2, 0, 4095, 100, 2000);
+  stepper1.setMaxSpeed(velocita1);
+  stepper2.setMaxSpeed(velocita2);
+
+  // Aggiorna la riga delle velocità sul display
+  display.setCursor(0, 16);
+  display.print("V1:");
+  display.print("V2:");
+  display.display();
+}
+
+void homingMotors() {
+  const unsigned long HOMING_TIMEOUT = 10000; // 10 secondi
+  unsigned long startTime;
+
+  // Homing motore 1 su A
+  stepper1.setMaxSpeed(400);
+  stepper1.setAcceleration(200);
+  startTime = millis();
+  while (digitalRead(LIMIT_A_PIN) == HIGH) {
+    stepper1.moveTo(stepper1.currentPosition() - 10);
+    stepper1.run();
+    delay(1);
+    // Controllo STOP
+    if (digitalRead(BUTTON_PIN) == LOW) {
+      stopMotors();
+      deactivateRelay();
+      state = PAUSED;
+      updateDisplay("Homing PAUSA");
+      return;
+    }
+    // Timeout
+    if (millis() - startTime > HOMING_TIMEOUT) {
+      stopMotors();
+      deactivateRelay();
+      state = STATO_ERRORE;
+      updateDisplay("Errore: finecorsa A");
+      delay(2000);
+      return;
+    }
+  }
+  stepper1.setCurrentPosition(0);
+
+  // Homing motore 2 su C
+  stepper2.setMaxSpeed(400);
+  stepper2.setAcceleration(200);
+  startTime = millis();
+  while (digitalRead(LIMIT_C_PIN) == HIGH) {
+    stepper2.moveTo(stepper2.currentPosition() - 10);
+    stepper2.run();
+    delay(1);
+    // Controllo STOP
+    if (digitalRead(BUTTON_PIN) == LOW) {
+      stopMotors();
+      deactivateRelay();
+      state = PAUSED;
+      updateDisplay("Homing PAUSA");
+      return;
+    }
+    // Timeout
+    if (millis() - startTime > HOMING_TIMEOUT) {
+      stopMotors();
+      deactivateRelay();
+      state = STATO_ERRORE;
+      updateDisplay("Errore: finecorsa C");
+      delay(2000);
+      return;
+    }
+  }
+  stepper2.setCurrentPosition(0);
+
+  aggiornaVelocita();
+}
+
+void setup() {
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LIMIT_A_PIN, INPUT_PULLUP);
+  pinMode(LIMIT_B_PIN, INPUT_PULLUP);
+  pinMode(LIMIT_C_PIN, INPUT_PULLUP);
+  pinMode(LIMIT_D_PIN, INPUT_PULLUP);
+  pinMode(POT1_PIN, INPUT_ANALOG);
+  pinMode(POT2_PIN, INPUT_ANALOG);
+
+  Wire.setSDA(PB7); // SDA per OLED
+  Wire.setSCL(PB6); // SCL per OLED
+  Wire.begin();
+
+  // Inizializzazione display
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Indirizzo I2C corretto
+  display.setFont(&FreeSans9pt7b); // Sostituisci con il nome del tuo font
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.println("ClickUp Stepper");
+  display.display();
+  delay(2000);
+
+  stepper1.setMaxSpeed(velocita1);
+  stepper1.setAcceleration(500);
+  stepper2.setMaxSpeed(velocita2);
+  stepper2.setAcceleration(500);
+
+  updateDisplay("Pronto");
+}
+
+void loop() {
+  aggiornaVelocita();
+
+  // Gestione pulsante Start/Stop (debounce semplice)
+  if (digitalRead(BUTTON_PIN) == LOW && !buttonPressed) {
+    buttonPressed = true;
+    if (state == STOPPED || state == STATO_ERRORE) {
+      if (!checkLimitsOK()) {
+        showError("Errore finecorsa!");
+        delay(1000);
+      } else {
+        state = HOMING;
+        homingDone = false;
+        updateDisplay("Homing...");
+      }
+    } else if (state == PAUSED) {
+      state = RUNNING_FORWARD;
+      activateRelay();
+      updateDisplay("Ciclo avviato");
+    } else if (state == RUNNING_FORWARD || state == RUNNING_BACK) {
+      state = PAUSED;
+      stopMotors();
+      deactivateRelay();
+      updateDisplay("Ciclo in pausa");
+    }
+    delay(300); // debounce
+  }
+  if (digitalRead(BUTTON_PIN) == HIGH) {
+    buttonPressed = false;
+  }
+
+  switch (state) {
+    case HOMING:
+      homingMotors();
+      if (state == HOMING) { // Se non è stato messo in pausa o errore
+        homingDone = true;
+        state = RUNNING_FORWARD;
+        activateRelay();
+        updateDisplay("Ciclo avviato");
+      }
+      break;
+
+    case RUNNING_FORWARD:
+      if (!checkLimitsOK()) {
+        showError("Errore finecorsa!");
+        break;
+      }
+      // Motore 1: da A a B
+      if (digitalRead(LIMIT_B_PIN) == HIGH) {
+        stepper1.moveTo(10000); // Sostituisci con la distanza reale
+        stepper1.run();
+      } else {
+        // Arrivato a B
+        stepper1.stop();
+        deactivateRelay();
+        state = RUNNING_BACK;
+        updateDisplay("Ritorno...");
+      }
+
+      // Motore 2: Inversione con finecorsa
+      stepper2.setMaxSpeed(velocita2);
+      stepper2.setAcceleration(500);
+      stepper2.moveTo(target2C); // Muovi verso il finecorsa C
+      stepper2.run();
+
+      // Se il finecorsa D è attivo, inverti la direzione al prossimo ciclo
+      if (digitalRead(LIMIT_D_PIN) == LOW) {
+        state = RUNNING_BACK;
+        updateDisplay("Inversione a D");
+      }
+      break;
+
+    case RUNNING_BACK:
+      if (!checkLimitsOK()) {
+        showError("Errore finecorsa!");
+        break;
+      }
+      // Motore 1: da B a A
+      if (digitalRead(LIMIT_A_PIN) == HIGH) {
+        stepper1.moveTo(0);
+        stepper1.run();
+      } else {
+        // Arrivato ad A, ciclo finito
+        stepper1.stop();
+        stepper2.stop();
+        state = STOPPED;
+        updateDisplay("Ciclo completato");
+      }
+
+      // Motore 2: Inversione con finecorsa
+      stepper2.setMaxSpeed(velocita2);
+      stepper2.setAcceleration(500);
+      stepper2.moveTo(target2D); // Muovi verso il finecorsa D
+      stepper2.run();
+
+      // Se il finecorsa C è attivo, inverti la direzione al prossimo ciclo
+      if (digitalRead(LIMIT_C_PIN) == LOW) {
+        state = RUNNING_FORWARD;
+        updateDisplay("Inversione a C");
+      }
+      break;
+
+    case PAUSED:
+      // Motori fermi, nessuna azione
+      break;
+
+    case STOPPED:
+      // Motori fermi, nessuna azione
+      break;
+    
+    case STATO_ERRORE:
+      // Motori fermi, nessuna azione
+      break;
+  }
+}
